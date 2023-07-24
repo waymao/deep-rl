@@ -1,15 +1,16 @@
 # Implementation of DQN
 # Inspired by https://hrl.boyuai.com/chapter/2/dqn%E7%AE%97%E6%B3%95/
-#
+# Also Inspired by the code in the tianshou project.
 
 import torch
 from torch import nn
 from torch.nn import functional as F
 import numpy as np
+from copy import deepcopy
 
 class DQN(nn.Module):
     """
-    Naive DQN which updates every timestep
+    Naive DQN
     """
     def __init__(self, 
             nn_module, 
@@ -18,16 +19,21 @@ class DQN(nn.Module):
             lr=1e-3, 
             gamma=0.99, 
             eps=0.05, 
-            target_update=1, # target network update frequency
+            target_update_freq=10, # target network update frequency
             device="cpu"
         ):
         super().__init__()
-        self.module: nn.Module = nn_module.to(device)
+        self.model: nn.Module = nn_module.to(device)
+
+        # deep copy the model into the target model which will
+        # only be updated once in a while
+        self.target_model = deepcopy(nn_module).to(device)
+        self.target_model.eval()
         
-        self.optimizer = torch.optim.Adam(self.module.parameters(), lr=lr)
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
         self.gamma = gamma
         self.eps = eps
-        self.target_update = target_update
+        self.target_update_freq = target_update_freq
         self.device = device
         self.update_count = 0
         self.state_dim = state_dim
@@ -39,7 +45,11 @@ class DQN(nn.Module):
         if np.random.random() < self.eps:
             return np.random.randint(0, self.action_dim)
         else:
-            return self.module(x).argmax().item()
+            return self.target_model(x).argmax().item()
+    
+    def sync_weight(self) -> None:
+        """Synchronize the weight for the target network."""
+        self.target_model.load_state_dict(self.model.state_dict())
     
     def update(self, batch):
         # state: NxS
@@ -56,11 +66,11 @@ class DQN(nn.Module):
         terminated_N = torch.tensor(terminated, dtype=torch.float32, device=self.device)
 
         # q for current state
-        q_all_values_NA = self.module(state_NS) # Q values for all actions
+        q_all_values_NA = self.model(state_NS) # Q values for all actions
         q_values_N1 = torch.gather(q_all_values_NA, 1, action_N.view(-1, 1)) # selected Q
         
-        # q for next state
-        q_values_next_NA: torch.Tensor = self.module(next_state_NS)
+        # q for next state using target model. TODO: why?
+        q_values_next_NA: torch.Tensor = self.target_model(next_state_NS)
         max_q_values_next_N = q_values_next_NA.max(1)[0]
 
         # target and loss
@@ -72,4 +82,9 @@ class DQN(nn.Module):
         self.optimizer.zero_grad()
         dqn_loss.backward()
         self.optimizer.step()
+
+        # update target network if necessary
+        self.update_count += 1
+        if self.update_count % self.target_update_freq == 0:
+            self.sync_weight()
 
