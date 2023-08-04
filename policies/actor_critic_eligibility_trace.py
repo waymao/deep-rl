@@ -13,7 +13,7 @@ class ActorCriticEligibilityTrace(nn.Module):
                  actor_module: nn.Module, 
                  critic_module: nn.Module, 
                  gamma: float=0.98, 
-                 lr_actor=1e-3, lr_critic=1e-3, 
+                 lr_actor=1e-4, lr_critic=1e-4, 
                  lambda_actor = 0.5,
                  lambda_critic = 0.5,
                  device="cpu"):
@@ -23,7 +23,14 @@ class ActorCriticEligibilityTrace(nn.Module):
         self.actor_module = actor_module.to(device)
         self.critic_module = critic_module.to(device)
         self.z_actor_module = deepcopy(actor_module)
-        self.z_critic_module = deepcopy(actor_module)
+        self.z_critic_module = deepcopy(critic_module)
+
+        # zero out the eligibility trace vector
+        with torch.no_grad():
+            for p in self.z_actor_module.parameters():
+                p.copy_(torch.zeros_like(p, device=device))
+            for p in self.z_critic_module.parameters():
+                p.copy_(torch.zeros_like(p, device=device))
         self.lr_actor = lr_actor
         self.lr_critic = lr_critic
         self.lambda_actor = lambda_actor
@@ -74,8 +81,8 @@ class ActorCriticEligibilityTrace(nn.Module):
         # update w and \theta
         with torch.no_grad():
             for p, p_z in zip(self.actor_module.parameters(), self.z_actor_module.parameters()):
-                p = p + self.lr_actor * delta * p_z
+                p.copy_(p + self.lr_actor * delta * p_z)
             for p, p_z in zip(self.critic_module.parameters(), self.z_critic_module.parameters()):
-                p = p + self.lr_critic * delta * p_z
+                p.copy_(p + self.lr_critic * delta * p_z)
         self.I *= self.gamma
 
