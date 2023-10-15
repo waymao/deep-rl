@@ -43,6 +43,7 @@ class PPO(nn.Module):
                  lmbda: float=0.95,
                  lr=1e-3, lr_critic=1e-3, 
                  eps=0.2, update_per_train=10,
+                 kl_earlystop=0.2,
                  device="cpu"):
         super().__init__()
         self.actor_module = actor_module
@@ -53,6 +54,7 @@ class PPO(nn.Module):
         self.optimizer = torch.optim.Adam(params=actor_module.parameters(), lr=lr)
         self.critic_optimizer = torch.optim.Adam(params=critic_module.parameters(), lr=lr_critic)
         self.eps = eps
+        self.kl_earlystop = kl_earlystop
         self.update_per_train = update_per_train
     
     def forward(self, x):
@@ -82,7 +84,7 @@ class PPO(nn.Module):
             critic_old_target_N = reward_N + self.gamma * self.critic_module(next_state_NS)[0] * ~terminated_N
             delta_N = critic_old_target_N - critic_old_value_N
             adv_N = compute_adv(self.gamma, self.lmbda, delta_N)
-            rew_tg_N = compute_rew_to_go(self.gamma, reward_N)
+            # rew_tg_N = compute_rew_to_go(self.gamma, reward_N)
 
         for _ in range(self.update_per_train):
             ### Update of Actor
@@ -93,6 +95,9 @@ class PPO(nn.Module):
             # ratio
             ratio_N = actor_new_N / actor_old_N
             kl = torch.sum(torch.log(ratio_N))
+            if self.kl_earlystop is not None and kl > self.kl_earlystop:
+                # avoid going too far from the last update
+                break
             # print("kl:", kl.item())
             clip_adv_N = torch.clamp(ratio_N, 1 - self.eps, 1 + self.eps) * adv_N
             actor_loss = -torch.min(ratio_N * adv_N, clip_adv_N).mean()
