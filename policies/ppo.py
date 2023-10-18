@@ -46,20 +46,20 @@ class PPO(nn.Module):
                  kl_earlystop=0.2,
                  device="cpu"):
         super().__init__()
-        self.actor_module = actor_module
-        self.critic_module = critic_module
+        self.actor = actor_module
+        self.critic = critic_module
         self.gamma = gamma
         self.lmbda = lmbda
         self.device = device
-        self.optimizer = torch.optim.Adam(params=actor_module.parameters(), lr=lr)
-        self.critic_optimizer = torch.optim.Adam(params=critic_module.parameters(), lr=lr_critic)
+        self.pi_optimizer = torch.optim.Adam(params=actor_module.parameters(), lr=lr)
+        self.v_optimizer = torch.optim.Adam(params=critic_module.parameters(), lr=lr_critic)
         self.eps = eps
         self.kl_earlystop = kl_earlystop
         self.update_per_train = update_per_train
     
     def forward(self, x):
         x = torch.tensor(x, device=self.device)
-        logits = self.actor_module(x)
+        logits = self.actor(x)
         action_list = torch.distributions.Categorical(logits)
         action = action_list.sample()
         return action.item()
@@ -79,36 +79,36 @@ class PPO(nn.Module):
 
         with torch.no_grad():
             # compute advantage
-            actor_old_N = self.actor_module.forward(state_NS).gather(1, action_N)
-            critic_old_value_N = self.critic_module(state_NS)[0]
-            critic_old_target_N = reward_N + self.gamma * self.critic_module(next_state_NS)[0] * ~terminated_N
-            delta_N = critic_old_target_N - critic_old_value_N
+            pi_old_N = self.actor.forward(state_NS).gather(1, action_N)
+            v_old_val_N = self.critic(state_NS)[0]
+            v_old_tgt_N = reward_N + self.gamma * self.critic(next_state_NS)[0] * ~terminated_N
+            delta_N = v_old_tgt_N - v_old_val_N
             adv_N = compute_adv(self.gamma, self.lmbda, delta_N)
             # rew_tg_N = compute_rew_to_go(self.gamma, reward_N)
 
         for _ in range(self.update_per_train):
             ### Update of Actor
             # compute new policy output
-            self.optimizer.zero_grad()
-            actor_new_N = self.actor_module.forward(state_NS).gather(1, action_N)
+            self.pi_optimizer.zero_grad()
+            pi_new_N = self.actor.forward(state_NS).gather(1, action_N)
             
             # ratio
-            ratio_N = actor_new_N / actor_old_N
+            ratio_N = pi_new_N / pi_old_N
             kl = torch.sum(torch.log(ratio_N))
             if self.kl_earlystop is not None and kl > self.kl_earlystop:
                 # avoid going too far from the last update
                 break
             # print("kl:", kl.item())
             clip_adv_N = torch.clamp(ratio_N, 1 - self.eps, 1 + self.eps) * adv_N
-            actor_loss = -torch.min(ratio_N * adv_N, clip_adv_N).mean()
+            pi_loss = -torch.min(ratio_N * adv_N, clip_adv_N).mean()
             # print(actor_loss.item())
-            actor_loss.backward()
-            self.optimizer.step()
+            pi_loss.backward()
+            self.pi_optimizer.step()
 
             ### update of critic
-            self.critic_optimizer.zero_grad()
+            self.v_optimizer.zero_grad()
             # critic_loss = torch.mean(F.mse_loss(self.critic_module(state_NS).squeeze(1), rew_tg_N))
-            critic_loss = torch.mean(F.mse_loss(self.critic_module(state_NS).squeeze(1), critic_old_target_N))
-            critic_loss.backward()
-            self.critic_optimizer.step()
+            v_loss = torch.mean(F.mse_loss(self.critic(state_NS).squeeze(1), v_old_tgt_N))
+            v_loss.backward()
+            self.v_optimizer.step()
 
