@@ -81,9 +81,10 @@ class PPO(nn.Module):
             # compute advantage
             pi_old_N = self.actor.forward(state_NS).gather(1, action_N)
             v_old_val_N = self.critic(state_NS)[0]
-            v_old_tgt_N = reward_N + self.gamma * self.critic(next_state_NS)[0] * ~terminated_N
-            delta_N = v_old_tgt_N - v_old_val_N
+            v_old_td1ret_N = reward_N + self.gamma * self.critic(next_state_NS)[0] * ~terminated_N
+            delta_N = v_old_td1ret_N - v_old_val_N
             adv_N = compute_adv(self.gamma, self.lmbda, delta_N)
+            v_old_lmdret_N = adv_N + v_old_val_N
             # rew_tg_N = compute_rew_to_go(self.gamma, reward_N)
 
         for _ in range(self.update_per_train):
@@ -108,7 +109,7 @@ class PPO(nn.Module):
             ### update of critic
             self.v_optimizer.zero_grad()
             # critic_loss = torch.mean(F.mse_loss(self.critic_module(state_NS).squeeze(1), rew_tg_N))
-            v_loss = torch.mean(F.mse_loss(self.critic(state_NS).squeeze(1), v_old_tgt_N))
+            v_loss = torch.mean(F.mse_loss(self.critic(state_NS).squeeze(1), v_old_td1ret_N))
             v_loss.backward()
             self.v_optimizer.step()
 
