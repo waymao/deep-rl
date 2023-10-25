@@ -25,6 +25,7 @@ class SAC(nn.Module):
             alpha=0.05, # trade off coeff
             policy_update_freq=10, # policy network update frequency
             target_update_freq=10, # target network update frequency
+            tau=0.005, # soft update ratio
             target_entropy=None,
             auto_alpha=True,
             device="cpu"
@@ -43,6 +44,7 @@ class SAC(nn.Module):
         # pi
         self.pi = pi.to(device)
         self.pi_optim = torch.optim.Adam(self.pi.parameters(), lr=lr_pi)
+        self.tau = tau
 
         # alpha and autotuning
         self.auto_alpha = auto_alpha
@@ -65,9 +67,12 @@ class SAC(nn.Module):
     
     def sync_weight(self) -> None:
         """Synchronize the weight for the target network."""
-        self.q1_target.load_state_dict(self.q1.state_dict())
-        self.q2_target.load_state_dict(self.q2.state_dict())
-    
+        with torch.no_grad():
+            for param, target_param in zip(self.q1.parameters(), self.q1_target.parameters()):
+                target_param.copy_(self.tau * param + (1 - self.tau) * target_param)
+            for param, target_param in zip(self.q2.parameters(), self.q2_target.parameters()):
+                target_param.copy_(self.tau * param + (1 - self.tau) * target_param)
+
     def update(self, batch):
         self.update_count += 1
         state, action, reward, next_state, terminated, truncated = batch
