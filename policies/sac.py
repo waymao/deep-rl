@@ -84,8 +84,8 @@ class SAC(nn.Module):
         alpha = torch.exp(self.log_alpha).detach()
 
         # q for current state
-        q1_val_NA = self.q1(torch.concat([s1_NS, a_NA.reshape(-1, 1)], dim=1))
-        q2_val_NA = self.q2(torch.concat([s1_NS, a_NA.reshape(-1, 1)], dim=1))
+        q1_val_NA = self.q1(torch.concat([s1_NS, a_NA], dim=1))
+        q2_val_NA = self.q2(torch.concat([s1_NS, a_NA], dim=1))
 
         # q for next state using newly sampled actions.
         with torch.no_grad():
