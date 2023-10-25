@@ -72,6 +72,15 @@ class SAC(nn.Module):
                 target_param.copy_(self.tau * param + (1 - self.tau) * target_param)
             for param, target_param in zip(self.q2.parameters(), self.q2_target.parameters()):
                 target_param.copy_(self.tau * param + (1 - self.tau) * target_param)
+    
+    def calc_q_target(self, s2_NS, r_N, ter_N):
+        alpha = torch.exp(self.log_alpha)
+        a_next_NA, log_prob_NA, _ = self.pi.get_action(s2_NS)
+        q1_next_NA = self.q1_target(torch.concat([s2_NS, a_next_NA], dim=1))
+        q2_next_NA = self.q2_target(torch.concat([s2_NS, a_next_NA], dim=1))
+        y_NA = r_N.view(-1, 1) + self.gamma * (1 - ter_N.view(-1, 1)) * \
+            (torch.minimum(q1_next_NA, q2_next_NA) - alpha * log_prob_NA)
+        return y_NA
 
     def update(self, batch):
         self.update_count += 1
@@ -89,11 +98,7 @@ class SAC(nn.Module):
 
         # q for next state using newly sampled actions.
         with torch.no_grad():
-            a_next_NA, log_prob_NA, _ = self.pi.get_action(s2_NS)
-            q1_next_NA = self.q1_target(torch.concat([s2_NS, a_next_NA], dim=1))
-            q2_next_NA = self.q2_target(torch.concat([s2_NS, a_next_NA], dim=1))
-            y_NA = r_N.view(-1, 1) + self.gamma * (1 - ter_N.view(-1, 1)) * \
-                (torch.minimum(q1_next_NA, q2_next_NA) - alpha * log_prob_NA)
+            y_NA = self.calc_q_target(s2_NS, r_N, ter_N)
 
         # q target and loss
         # back propagate q loss

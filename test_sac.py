@@ -49,9 +49,9 @@ for epi in range(500):
     total_return = 0
 
     while not terminated and not truncated:
-        action = sac_policy(torch.from_numpy(observation.reshape(1, -1)))
+        action = sac_policy(torch.from_numpy(observation.reshape(1, -1))).detach().squeeze(0).numpy()
         prev_obs = observation
-        observation, reward, terminated, truncated, info = env.step(action.detach().numpy()[0])
+        observation, reward, terminated, truncated, info = env.step(action)
         buffer.add(prev_obs, action, reward, observation, terminated, truncated)
         epi_len += 1
         total_return += reward
