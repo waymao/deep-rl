@@ -82,7 +82,6 @@ class SAC(nn.Module):
         s2_NS = torch.tensor(next_state, dtype=torch.float32, device=self.device)
         ter_N = torch.tensor(terminated, dtype=torch.float32, device=self.device)
         alpha = torch.exp(self.log_alpha).detach()
-        r_N = (r_N + 8.0) / 8.0
 
         # q for current state
         q1_val_NA = self.q1(torch.concat([s1_NS, a_NA.reshape(-1, 1)], dim=1))
