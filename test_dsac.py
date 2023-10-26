@@ -34,6 +34,8 @@ sac_policy = DiscreteSAC(
     lr_pi=1e-3,
     lr_alpha=1e-2,
     target_entropy=-1,
+    # alpha=0.1,
+    start_steps=10,
     auto_alpha=True
 )
 results_sac = []

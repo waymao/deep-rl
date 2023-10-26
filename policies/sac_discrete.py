@@ -1,6 +1,9 @@
 # Implementation of SAC
-# Inspired by https://github.com/boyu-ai/Hands-on-RL
-# Also Inspired by the code in the tianshou project, CleanRL, and SpinningUp.
+# Mostly inspired by Clean RL.
+# Also Inspired by the code in the tianshou project, boyuai, and SpinningUp.
+# it's different from sac2 in that it applies some methods to make computation
+# more stable, plus that when learning pi, we used weighted sum of q instead of
+# just gathering selected action.
 
 import torch
 from torch import nn
@@ -26,6 +29,7 @@ class DiscreteSAC(nn.Module):
             policy_update_freq=10, # policy network update frequency
             target_update_freq=10, # target network update frequency
             tau=0.005, # soft update ratio
+            start_steps=10, # initial exploration phase, per spinning up
             target_entropy=None,
             auto_alpha=True,
             device="cpu"
@@ -40,10 +44,10 @@ class DiscreteSAC(nn.Module):
         self.q2_target = deepcopy(q2).to(device)
         self.q2_target.eval()
         # q optim
-        self.q_optim = torch.optim.Adam(list(self.q1.parameters()) + list(self.q2.parameters()), lr=lr_q)
+        self.q_optim = torch.optim.Adam(list(self.q1.parameters()) + list(self.q2.parameters()), lr=lr_q, eps=1e-4)
         # pi
         self.pi = pi.to(device)
-        self.pi_optim = torch.optim.Adam(self.pi.parameters(), lr=lr_pi)
+        self.pi_optim = torch.optim.Adam(self.pi.parameters(), lr=lr_pi, eps=1e-4)
         self.tau = tau
 
         # alpha and autotuning
@@ -61,9 +65,18 @@ class DiscreteSAC(nn.Module):
         self.update_count = 0
         self.state_dim = state_dim
         self.action_dim = action_dim
+
+        # initial exploration phase
+        self.start_steps = start_steps
+        self.step = 0
     
     def forward(self, x):
-        return self.pi.get_action(x)[0]
+        if self.step <= self.start_steps:
+            self.step += 1
+            print("random")
+            return torch.floor(torch.rand(1) * self.action_dim).int()[0].item()
+        else:
+            return self.pi.get_action(x)[0][0].item()
     
     def sync_weight(self) -> None:
         """Synchronize the weight for the target network."""
@@ -75,12 +88,13 @@ class DiscreteSAC(nn.Module):
     
     def calc_q_target(self, s2_NS, r_N, ter_N):
         alpha = torch.exp(self.log_alpha)
-        log_prob_NA = torch.log(self.pi(s2_NS) + 1e-8)
+        _, log_prob_NA, prob_NA = self.pi.get_action(s2_NS)
         q1_next_NA = self.q1_target(s2_NS)
         q2_next_NA = self.q2_target(s2_NS)
-        y_NA = r_N.view(-1, 1) + self.gamma * (1 - ter_N.view(-1, 1)) * \
-            (torch.minimum(q1_next_NA, q2_next_NA) - alpha * log_prob_NA)
-        return y_NA
+        q_min_next_NA = torch.min(q1_next_NA, q2_next_NA) - alpha * log_prob_NA
+        q_next_weighed_N = (prob_NA * q_min_next_NA).sum(dim=1)
+        y_N = r_N + self.gamma * (1 - ter_N) * q_next_weighed_N
+        return y_N
 
     def update(self, batch):
         self.update_count += 1
@@ -93,38 +107,39 @@ class DiscreteSAC(nn.Module):
         alpha = torch.exp(self.log_alpha).detach()
 
         # q for current state
-        q1_val_N1 = self.q1(s1_NS).gather(1, a_N.view(-1, 1))
-        q2_val_N1 = self.q2(s1_NS).gather(1, a_N.view(-1, 1))
+        q1_val_N = self.q1(s1_NS).gather(1, a_N.view(-1, 1)).squeeze()
+        q2_val_N = self.q2(s1_NS).gather(1, a_N.view(-1, 1)).squeeze()
 
         # q for next state using newly sampled actions.
         with torch.no_grad():
-            y_NA = self.calc_q_target(s2_NS, r_N, ter_N)
+            y_N = self.calc_q_target(s2_NS, r_N, ter_N)
 
         # q target and loss
         # back propagate q loss
-        q_loss1 = torch.mean(F.mse_loss(q1_val_N1, y_NA))
-        q_loss2 = torch.mean(F.mse_loss(q2_val_N1, y_NA))
+        q_loss1 = torch.mean(F.mse_loss(q1_val_N, y_N))
+        q_loss2 = torch.mean(F.mse_loss(q2_val_N, y_N))
         self.q_optim.zero_grad()
         q_loss1.backward()
         q_loss2.backward()
+        # print("q", q_loss1.item())
         self.q_optim.step()
 
         # pi loss
         if self.update_count % self.policy_update_freq == 0:
             for _ in range(self.policy_update_freq):
-                prob_NA = self.pi(s2_NS)
-                log_prob_NA = torch.log(prob_NA + 1e-8)
-                q1_NA = self.q1(s2_NS)
-                q2_NA = self.q2(s2_NS)
-                min_q_N1 = torch.sum(prob_NA * torch.min(q1_NA, q2_NA), dim=1, keepdim=True)
-                pi_loss = -torch.mean(min_q_N1 - alpha * log_prob_NA)
+                _, log_pi_NA, action_probs_NA = self.pi.get_action(s1_NS)
+                with torch.no_grad():
+                    q1_NA = self.q1(s1_NS)
+                    q2_NA = self.q2(s1_NS)
+                    min_q_NA = torch.min(q1_NA, q2_NA)
+                pi_loss = -torch.mean((min_q_NA - alpha * log_pi_NA) * action_probs_NA)
                 self.pi_optim.zero_grad()
                 pi_loss.backward()
                 self.pi_optim.step()
                 
                 if self.auto_alpha:
                     alpha_loss = torch.mean(
-                        (-log_prob_NA - self.target_entropy)).detach() * torch.exp(self.log_alpha)
+                        (-log_pi_NA - self.target_entropy)).detach() * torch.exp(self.log_alpha)
                     self.alpha_optim.zero_grad()
                     alpha_loss.backward()
                     self.alpha_optim.step()
