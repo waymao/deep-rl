@@ -41,7 +41,7 @@ buffer = ReplayBuffer(capacity=10000)
 minimal_size = 100
 batch_size = 64
 
-for epi in range(500):
+for epi in range(5000):
     observation, info = env.reset(seed=0)
     terminated = False
     truncated = False
