@@ -26,6 +26,7 @@ class DiscreteSAC(nn.Module):
             policy_update_freq=10, # policy network update frequency
             target_update_freq=10, # target network update frequency
             tau=0.005, # soft update ratio
+            start_steps=10, # initial exploration phase, per spinning up
             target_entropy=None,
             auto_alpha=True,
             device="cpu"
@@ -61,10 +62,19 @@ class DiscreteSAC(nn.Module):
         self.update_count = 0
         self.state_dim = state_dim
         self.action_dim = action_dim
+
+        # initial exploration phase
+        self.start_steps = start_steps
+        self.step = 0
     
     def forward(self, x):
-        return self.pi.get_action(x)[0]
-    
+        if self.step <= self.start_steps:
+            self.step += 1
+            print("random")
+            return torch.floor(torch.rand(1) * self.action_dim).int()[0].item()
+        else:
+            return self.pi.get_action(x)[0]
+
     def sync_weight(self) -> None:
         """Synchronize the weight for the target network."""
         with torch.no_grad():
