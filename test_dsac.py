@@ -8,8 +8,22 @@ from utils.replay_buffer import ReplayBuffer
 from torch import nn
 from policies.sac_discrete import DiscreteSAC
 from policies.actor.discrete_actor import DiscreteSoftActor
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--env_seed", type=int, default=42)
+parser.add_argument("--seed", type=int, default=42)
+
+args = parser.parse_args()
+seed = args.seed
+env_seed = args.env_seed
+print("seed", seed, "; env seed", env_seed)
+
 env = gym.make('CartPole-v1', max_episode_steps=200)
-env.reset(seed=0)
+torch.manual_seed(seed)
+np.random.seed(seed)
+random.seed(seed)
+env.reset(seed=env_seed)
 
 actor_module = DiscreteSoftActor(state_dim=4, 
                                    action_dim=2,
@@ -32,11 +46,12 @@ sac_policy = DiscreteSAC(
     action_dim=2,
     lr_q=1e-2,
     lr_pi=1e-3,
-    lr_alpha=1e-2,
-    target_entropy=-1,
+    # lr_alpha=1e-2,
+    # target_entropy=-1,
     # alpha=0.1,
+    alpha=0.1,
     start_steps=10,
-    auto_alpha=True
+    auto_alpha=False
 )
 results_sac = []
 buffer = ReplayBuffer(capacity=10000)

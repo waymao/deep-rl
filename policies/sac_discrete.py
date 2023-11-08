@@ -137,6 +137,8 @@ class DiscreteSAC(nn.Module):
                 pi_loss.backward()
                 self.pi_optim.step()
                 
+                # entropy = torch.mean(-log_pi_NA).detach()
+                # print("entropy:", entropy.item(), "; alpha:", self.log_alpha.exp().item())
                 if self.auto_alpha:
                     alpha_loss = torch.mean(
                         (-log_pi_NA - self.target_entropy)).detach() * torch.exp(self.log_alpha)

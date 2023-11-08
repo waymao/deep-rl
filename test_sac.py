@@ -8,8 +8,22 @@ from utils.replay_buffer import ReplayBuffer
 from torch import nn
 from policies.sac import SAC
 from policies.actor.continuous_actor import ContinuousSoftActor
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--env_seed", type=int, default=42)
+parser.add_argument("--seed", type=int, default=42)
+
+args = parser.parse_args()
+seed = args.seed
+env_seed = args.env_seed
+print("seed", seed, "; env seed", env_seed)
+
 env = gym.make('Pendulum-v1', max_episode_steps=200)
-env.reset(seed=0)
+torch.manual_seed(seed)
+np.random.seed(seed)
+random.seed(seed)
+env.reset(seed=env_seed)
 
 actor_module = ContinuousSoftActor(state_dim=3, 
                                    action_dim=1, 
